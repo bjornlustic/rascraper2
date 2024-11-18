@@ -1,4 +1,6 @@
 import json
+import csv
+import os
 import sys
 import argparse
 import asyncio
@@ -104,6 +106,9 @@ class EventFetcher:
         all_events = []
         date_format = "%Y-%m-%d"
         current_start = start_date
+        year = start_date.year
+        month = start_date.month
+        event_counter = 0
 
         # Determine the interval length based on the interval_type
         if interval_type == 'week':
@@ -143,11 +148,18 @@ class EventFetcher:
             combined_events = initial_events + interval_events
             all_events.extend(combined_events)
 
-            # Print the total number of events fetched for the current interval
-            print(f"Total events for this {interval_type}: {len(combined_events)}")
+            if len(combined_events) < 10000:
+                # Print the total number of events fetched for the current interval
+                event_counter = len(combined_events)
+                if interval_type == 'month':
+                    print(f"MONTH: {current_start.month}")
+                    EventFetcher.update_event_statistics(year, current_start.month, event_counter)
+                print(f"Total events for this {interval_type}: {len(combined_events)}")
+                event_counter = 0
 
             # Handling Monthly events exceeding 10,000
             if interval_type == 'month' and len(combined_events) > 10000:
+                event_counter = 0
                 print(f"Total events for this month exceed 10,000, breaking down biweekly...")
 
                 # Switch to biweekly if monthly events exceed 10,000
@@ -157,7 +169,7 @@ class EventFetcher:
                     next_biweekly_end = min(current_start + timedelta(days=13), current_end)
                     gte = current_start.strftime(date_format)
                     lte = next_biweekly_end.strftime(date_format)
-                    print(f"Fetching biweekly events from {gte} to {lte}...")
+                    print(f"\nFetching biweekly events from {gte} to {lte}...")
 
                     payload = self.generate_payload(gte, lte)
                     biweekly_events = await self.fetch_all_pages(session, payload, total_results, semaphore)
@@ -166,9 +178,14 @@ class EventFetcher:
                     all_events.extend(biweekly_events)
 
                     # Move to the next biweekly interval
+                    event_counter += len(biweekly_events)
+                    print(f"MONTH: {current_start.month}")
+                    EventFetcher.update_event_statistics(year, current_start.month, event_counter)
                     current_start = next_biweekly_end + timedelta(days=1)
-
+                    print(f"Total events for this biweekly interval: {len(biweekly_events)}")
+                    
                 # After biweekly fetching is done, move to the next month
+                
                 continue  # Continue with the next month processing
 
             # Move to the next month if monthly events do not exceed 10,000
@@ -184,7 +201,7 @@ class EventFetcher:
             else:
                 # For biweekly or weekly intervals, move to the next interval
                 current_start = current_end + timedelta(days=1)
-
+            
         return all_events
 
     async def fetch_events(self, start_date, end_date, semaphore, year):
@@ -192,18 +209,10 @@ class EventFetcher:
             all_events = await self.fetch_events_by_interval(session, start_date, end_date, semaphore, 'year')
             total_results = len(all_events)
 
-            # If yearly events exceed 10,000, do not print the total
-            # if total_results <= 10000:
-                #print(f"Total events for the year {year}: {total_results}")
-
-            # If yearly events exceed 10,000, break them down by month
-            if total_results <= 10000:
-                print("Total events in the year is below 10,000, no further breakdown needed.")
-                return all_events
-            else:
-                print("Yearly events exceed 10,000, breaking down by month...")
-                all_events = await self.fetch_events_by_interval(session, start_date, end_date, semaphore, 'month')
-                return all_events
+            # Break them down by month
+            print("Breaking down by month...")
+            all_events = await self.fetch_events_by_interval(session, start_date, end_date, semaphore, 'month')
+            return all_events
 
     def save_events_to_json(self, all_events, year):
         output_file = f"events/events{year}.json"  # Save the file with the year as part of the filename
@@ -211,7 +220,139 @@ class EventFetcher:
             json.dump(all_events, json_file, indent=2, ensure_ascii=False)
         print(f"Events saved to {output_file}.")
 
+    @staticmethod
+    def update_event_statistics(year, month, num_events):
+        # Define the CSV file path
+        statistics_file = "event_statistics.csv"
+        
+        # Read the existing data (if any)
+        rows = []
+        file_exists = os.path.exists(statistics_file)
+        
+        # If the file exists, read the current data into a list of rows
+        if file_exists:
+            with open(statistics_file, mode='r', newline='', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                rows = list(reader)
+
+        # Check if the header exists and add it if not
+        if len(rows) == 0 or rows[0] != ["Year", "Month", "Num_Events"]:
+            rows.insert(0, ["Year", "Month", "Num_Events"])  # Insert header if missing
+
+        # Flag to check if we found the row to update
+        updated = False
+
+        # Iterate through the rows and update the matching year and month
+        for i, row in enumerate(rows[1:], 1):  # Start from 1 to skip the header
+            existing_year, existing_month, _ = row
+            if existing_year == str(year) and existing_month == f"{str(month).zfill(2)}":
+                rows[i][2] = str(num_events)  # Update the num_events column
+                updated = True
+                break
+
+        # If the year and month don't exist, append a new row
+        if not updated:
+            rows.append([str(year), f"{str(month).zfill(2)}", str(num_events)])
+
+        # Write the updated data back to the CSV file
+        with open(statistics_file, mode='w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerows(rows)  # Write all the rows, including the header
+
+        print(f"Updated statistics: Year {year}, Month {str(month).zfill(2)}, Events: {num_events}")
+    
+    def convert_csv_to_json(csv_file, json_file):
+        # Check if the CSV file exists
+        if not os.path.exists(csv_file):
+            print(f"Error: {csv_file} not found.")
+            return
+
+        # Initialize a dictionary to store the data
+        data = {}
+
+        # Read the CSV file
+        with open(csv_file, mode='r', newline='', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            header = next(reader)  # Read the header row
+
+            # Ensure the header is correct
+            if header != ["Year", "Month", "Num_Events"]:
+                print("Error: CSV file does not have the expected header.")
+                return
+
+            # Process each row
+            for row in reader:
+                year, month, num_events = row
+                year = int(year)  # Convert year to integer
+                month = int(month)  # Convert month to integer
+                num_events = int(num_events)  # Convert num_events to integer
+
+                # Initialize the year if it doesn't exist
+                if year not in data:
+                    data[year] = {
+                        "total_events": 0,
+                        "months": {f"{str(i).zfill(2)}": 0 for i in range(1, 13)}
+                    }
+
+                # Update the statistics
+                data[year]["total_events"] += num_events
+                data[year]["months"][f"{str(month).zfill(2)}"] += num_events
+
+        # Write the data to a JSON file
+        with open(json_file, mode='w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
+        print(f"CSV data successfully converted to JSON and saved as {json_file}.")
+
+def convert_csv_to_json(csv_file, json_file):
+        # Check if the CSV file exists
+        if not os.path.exists(csv_file):
+            print(f"Error: {csv_file} not found.")
+            return
+
+        # Initialize a dictionary to store the data
+        data = {}
+
+        # Read the CSV file
+        with open(csv_file, mode='r', newline='', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            header = next(reader)  # Read the header row
+
+            # Ensure the header is correct
+            if header != ["Year", "Month", "Num_Events"]:
+                print("Error: CSV file does not have the expected header.")
+                return
+
+            # Process each row
+            for row in reader:
+                year, month, num_events = row
+                year = int(year)  # Convert year to integer
+                month = int(month)  # Convert month to integer
+                num_events = int(num_events)  # Convert num_events to integer
+
+                # Initialize the year if it doesn't exist
+                if year not in data:
+                    data[year] = {
+                        "total_events": 0,
+                        "months": {f"{str(i).zfill(2)}": 0 for i in range(1, 13)}
+                    }
+
+                # Update the statistics
+                data[year]["total_events"] += num_events
+                data[year]["months"][f"{str(month).zfill(2)}"] += num_events
+
+        # Write the data to a JSON file
+        with open(json_file, mode='w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
+        if os.path.exists(csv_file):
+            os.remove(csv_file)
+            print(f"Deleted the CSV file: {csv_file}")
+
+        print(f"CSV data successfully converted to JSON and saved as {json_file}.")
+
 def main():
+
     parser = argparse.ArgumentParser(description="Fetch events from ra.co and save them to JSON files.")
     parser.add_argument("start_year", type=int, help="The start year for event listings (inclusive).")
     parser.add_argument("end_year", type=int, help="The end year for event listings (inclusive).")
@@ -222,6 +363,9 @@ def main():
         sys.exit(1)
 
     event_fetcher = EventFetcher()
+
+    if os.path.exists("event_statistics.csv"):
+        os.remove("event_statistics.csv")
     
     # Loop through each year in the specified range
     all_events = []
@@ -235,9 +379,8 @@ def main():
 
         # Save events for this year separately
         event_fetcher.save_events_to_json(events_for_year, year)
-    
-    # Optionally, you can save all events into one combined file
-    # event_fetcher.save_events_to_json(all_events, "combined")
+
+    convert_csv_to_json("event_statistics.csv", "event_statistics.json")
 
 if __name__ == "__main__":
     main()

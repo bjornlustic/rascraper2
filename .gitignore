@@ -1,1 +1,4 @@
 events/
+event_statistics.csv
+evennt_statistics.json
+graphql_schema.json
