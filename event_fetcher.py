@@ -16,7 +16,7 @@ HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:106.0) Gecko/20100101 Firefox/106.0'
 }
 DELAY = 0  # Adjust as needed
-CONCURRENT_REQUESTS = 10  # Max concurrent requests
+CONCURRENT_REQUESTS = 12  # Max concurrent requests
 
 class EventFetcher:
     def __init__(self):
@@ -40,29 +40,31 @@ class EventFetcher:
             query GET_EVENT_LISTINGS($filters: FilterInputDtoInput, $page: Int, $pageSize: Int) {
                 eventListings(filters: $filters, pageSize: $pageSize, page: $page) {
                     data {
-                        id
-                        listingDate
                         event {
                             id
+                            contentUrl
                             title
                             date
-                            startTime
-                            endTime
                             venue {
                                 id
+                                name
+                                address
+                            }
+                            country {
+                                id 
                                 name
                             }
                             artists {
                                 id
                                 name
+                                contentUrl
+                                followerCount
                             }
                             genres {
                                 id
                                 name
                             }
                             cost
-                            isFestival
-                            lineup
                             attending
                         }
                     }
@@ -202,10 +204,9 @@ class EventFetcher:
             
         return all_events
 
-    async def fetch_events(self, start_date, end_date, semaphore, year):
+    async def fetch_events(self, start_date, end_date, semaphore):
         async with ClientSession() as session:
             all_events = await self.fetch_events_by_interval(session, start_date, end_date, semaphore, 'year')
-            total_results = len(all_events)
 
             # Break them down by month
             print("Breaking down by month...")
@@ -372,7 +373,7 @@ def main():
         year_start = datetime(year, 1, 1)
         year_end = datetime(year, 12, 31)
         
-        events_for_year = asyncio.run(event_fetcher.fetch_events(year_start, year_end, asyncio.Semaphore(CONCURRENT_REQUESTS), year))
+        events_for_year = asyncio.run(event_fetcher.fetch_events(year_start, year_end, asyncio.Semaphore(CONCURRENT_REQUESTS)))
         all_events.extend(events_for_year)
 
         # Save events for this year separately
