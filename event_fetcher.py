@@ -152,7 +152,6 @@ class EventFetcher:
                 # Print the total number of events fetched for the current interval
                 event_counter = len(combined_events)
                 if interval_type == 'month':
-                    print(f"MONTH: {current_start.month}")
                     EventFetcher.update_event_statistics(year, current_start.month, event_counter)
                 print(f"Total events for this {interval_type}: {len(combined_events)}")
                 event_counter = 0
@@ -179,7 +178,6 @@ class EventFetcher:
 
                     # Move to the next biweekly interval
                     event_counter += len(biweekly_events)
-                    print(f"MONTH: {current_start.month}")
                     EventFetcher.update_event_statistics(year, current_start.month, event_counter)
                     current_start = next_biweekly_end + timedelta(days=1)
                     print(f"Total events for this biweekly interval: {len(biweekly_events)}")
