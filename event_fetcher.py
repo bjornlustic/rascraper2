@@ -49,6 +49,7 @@ class EventFetcher:
                                 id
                                 name
                                 address
+                                capacity
                             }
                             country {
                                 id 
