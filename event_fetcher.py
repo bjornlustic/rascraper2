@@ -215,7 +215,10 @@ class EventFetcher:
             return all_events
 
     def save_events_to_json(self, all_events, year):
-        output_file = f"events/events{year}.json"  # Save the file with the year as part of the filename
+        output_dir = "events"
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        output_file = os.path.join(output_dir, f"events{year}.json")  # Save the file with the year as part of the filename
         with open(output_file, mode='w', encoding='utf-8') as json_file:
             json.dump(all_events, json_file, indent=2, ensure_ascii=False)
         print(f"Events saved to {output_file}.")
